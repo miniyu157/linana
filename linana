@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+
+# shellcheck disable=SC2155
+
+pure::get_mntns_by_pid() {
+    readlink "/proc/${1}/ns/mnt" | grep -oP '\d+'
+}
+
+# Print error message to stderr and exit
+pure::die() {
+    printf "$@" >&2
+    exit 1
+}
+
+# 获取当前容器是否运行，运行返回 0
+this::check_running() {
+    [[ -f ${GLOBAL[pidfile]} ]] || return 1
+    local sleep_pid=$(< "${GLOBAL[pidfile]}")
+    [[ -n $sleep_pid ]] || return 1
+    local mntns=$(pure::get_mntns_by_pid "$sleep_pid")
+    [[ -n $mntns ]] || return 1
+    nsenter -t "$sleep_pid" -m -- mountpoint -q "${GLOBAL[mountpoint]}" || return 1
+}
+
+# 获取当前容器的实例，打印 PID 或 mntns
+this::ensure_ns() {
+    case "$1" in
+        pid)
+            this::check_running && {
+                cat "${GLOBAL[pidfile]}"
+                return 0
+            }
+
+            setsid unshare -m -u sleep infinity > /dev/null 2>&1 &
+            local pid=$!
+            printf '%s\n' "$pid" | tee "${GLOBAL[pidfile]}"
+            ;;
+        mntns)
+            local pid=$(this::ensure_ns pid)
+            pure::get_mntns_by_pid "$pid"
+            ;;
+    esac
+}
+
+# 为当前容器挂载镜像
+this::set_mp() {
+    mountpoint -q "${GLOBAL[mountpoint]}" || {
+        printf "%b" "[mount] ${OPTIONS[img]} -> ${GLOBAL[mountpoint]}\n"
+        mkdir -p "${GLOBAL[mountpoint]}"
+        mount "${OPTIONS[img]}" "${GLOBAL[mountpoint]}"
+    }
+}
+
+# 为当前容器挂载文件系统
+this::mountfs() {
+    local nspid=$(this::ensure_ns pid)
+    local mntns=$(this::ensure_ns mntns)
+
+    nsenter -t "$nspid" -m -u -- bash -s "${GLOBAL[mountpoint]}" "$mntns" "${OPTIONS[android_storage]:-0}" << 'SCRIPT'
+MP=$1 NS=$2 STORAGE=${3:-0}
+
+bind_srcs=(/dev /dev/pts /proc /sys)
+
+for src in "${bind_srcs[@]}"; do
+    [[ -d $src ]] || continue
+
+    dst="$MP$src" dst="${dst%/}" dst="${dst//+(\/)/}"
+    mkdir -p "$dst"
+    mountpoint -q "$dst" || {
+        echo "[mntns:${NS}] ${src} -> ${dst}"
+        mount --bind "$src" "$dst"
+    }
+done
+
+tmpfs_dirs=(/tmp /run)
+
+for dir in "${tmpfs_dirs[@]}"; do
+    dst="$MP$dir"
+    mkdir -p "$dst"
+    mountpoint -q "$dst" || {
+        echo "[mntns:${NS}] tmpfs -> ${dst}"
+        mount -t tmpfs tmpfs "$dst"
+    }
+done
+
+# Android storage: only when --android-storage flag is active
+[[ $STORAGE == 1 ]] && {
+    src="/storage/emulated/0"
+    dst="$MP/storage/emulated/0"
+    [[ -d $src ]] && {
+        mkdir -p "$dst"
+        mountpoint -q "$dst" || {
+            echo "[mntns:${NS}] ${src} -> ${dst}"
+            mount --rbind "$src" "$dst"
+        }
+    }
+}
+SCRIPT
+}
+
+app::escalate() {
+    local shell=$(command -v bash || printf "%s" "/data/data/com.termux/files/usr/bin/bash")
+    (($(id -u) != 0)) && {
+        [[ -f /system/build.prop ]] || printf "Not an Android environment. Automatic privilege escalation may fail. Please run with sudo.\n" >&2
+        exec su -M -c "$(printf "%q " env -i PATH=/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin HOME=/data/data/com.termux/files/home/.suroot TERM="$TERM" LD_PRELOAD="/data/data/com.termux/files/usr/lib/libtermux-exec-ld-preload.so" "$shell" "$(readlink -f "$0")" "${SCRIPT_ARGV[@]}")"
+    }
+}
+
+usage() {
+    local _b=$'\e[1m' _cyan=$'\e[36m' _title=$'\e[1;3;4m' _desc=$'\e[2m' _off=$'\e[0m'
+    cat << EOF
+${_b}${0##*/} -- A minimal chroot container runtime implemented in Bash${_off}
+
+Automatically preserves the Termux environment during privilege escalation.
+Only mount and UTS namespaces are used — PID and USER namespace support is not required.
+${_cyan}https://github.com/miniyu157/linana${_off}
+
+${_title}Usage: ${0##*/} [Options] <Command> [args]${_off}
+
+${_title}Options:${_off}
+  -i, --img <PATH>          Specify the path to the rootfs image
+  -S, --android-storage     Mount Android internal storage (/storage/emulated/0) into the container (Android only)
+
+${_title}Commands (manage a specific container -- requires --img):${_off}
+  start                     Start the container (idempotent: no-op if already running)
+  stop                      Stop the running container and clean up
+  restart                   Stop (if running) then start the container
+  enter [USER=root]         Start the container if needed, then launch a login shell
+  exec <command...>         Execute a command inside a running container
+  proc                      List processes inside the running container
+
+${_title}Commands (manage all containers -- no --img needed):${_off}
+  ps                        List all containers (id, pid, mntns, img, mp)
+  help                      Show this help message
+EOF
+    exit 1
+}
+
+check::is_already_running() {
+    this::check_running || pure::die "Container not running: %s\n" "${GLOBAL[imghash]}"
+}
+
+check::img() {
+    [[ -n ${OPTIONS[img]} ]] || pure::die "--img is required for this command.\n"
+}
+
+cmd::proc() {
+    check::img
+    app::escalate "$@"
+    check::is_already_running
+
+    local mntns=$(this::ensure_ns mntns)
+    ps -e -o uid,pid,mntns,args --no-headers |
+        awk -v mntns="$mntns" '
+    BEGIN { printf "%6s %7s  %s\n", "UID", "PID", "COMMAND" }
+    $3 == mntns { printf "%6s %7s  %s\n", $1, $2, substr($0, index($0, $4)) }
+'
+}
+
+cmd::exec() {
+    check::img
+    app::escalate "$@"
+    check::is_already_running
+
+    local nspid=$(this::ensure_ns pid)
+    local cmd=("$@")
+    exec -c nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su -c "${cmd[*]}"
+}
+
+cmd::ps() {
+    app::escalate "$@"
+
+    local pidfile hash img mp nspid mntns
+    for pidfile in /tmp/lina_*.pid; do
+        hash="${pidfile##*/lina_}" hash="${hash%.pid}"
+        img=$(mount | grep "/mnt/lina/${hash}" | awk '{print $1}')
+        [[ -n $img ]] || continue
+
+        nspid=$(< "$pidfile")
+        mntns=$(pure::get_mntns_by_pid "$nspid")
+        mp="/mnt/lina/${hash}"
+        printf "id=%s pid=%s mntns=%s img=%s mp=%s\n" "$hash" "$nspid" "$mntns" "$img" "$mp"
+    done
+}
+
+# 进入容器终端，未启动则自动启动
+cmd::enter() {
+    local user="${1:-root}"
+    cmd::start
+    local nspid=$(this::ensure_ns pid)
+
+    # echo $$ | tee /dev/cpuctl/cgroup.procs /dev/cpuset/cgroup.procs /dev/memcg/cgroup.procs > /dev/null 2>&1
+    exec env -i TERM="$TERM" nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su - "$user"
+}
+
+# 启动容器，若已启动则不进行操作
+cmd::start() {
+    check::img
+    app::escalate "$@"
+
+    this::check_running && return 0
+
+    this::set_mp
+
+    local nspid=$(this::ensure_ns pid)
+    printf "nspid: %s\n" "$nspid"
+
+    this::mountfs
+
+    # shellcheck disable=SC2016
+    env -i nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/sh -c '[ -e /proc/sys/kernel/hostname ] && [ -r /etc/hostname ] && read -r HN < /etc/hostname && echo "$HN" > /proc/sys/kernel/hostname'
+}
+
+cmd::stop() {
+    check::img
+    app::escalate "$@"
+    check::is_already_running
+
+    local nspid=$(this::ensure_ns pid)
+    local mntns=$(this::ensure_ns mntns)
+
+    # 终止命名空间内所有进程（排除 sleep 自身）
+    for pid_dir in /proc/[0-9]*; do
+        local pid="${pid_dir##*/}"
+        [[ $pid == "$nspid" ]] && continue
+        local pid_ns=$(pure::get_mntns_by_pid "$pid" 2> /dev/null)
+        [[ $pid_ns == "$mntns" ]] && kill -9 "$pid" 2> /dev/null || true
+    done
+
+    # 杀死 sleep，内核自动清理挂载命名空间
+    kill "$nspid" 2> /dev/null || true
+
+    # 卸载挂载点
+    mountpoint -q "${GLOBAL[mountpoint]}" 2> /dev/null && (umount "${GLOBAL[mountpoint]}" || umount -l "${GLOBAL[mountpoint]}")
+
+    rm -r "${GLOBAL[mountpoint]}"
+    rm -f "${GLOBAL[pidfile]}"
+
+    printf "%s\n" "${GLOBAL[imghash]}"
+}
+
+cmd::restart() {
+    this::check_running && {
+        local nspid=$(this::ensure_ns pid)
+        printf "Stopping container...(nspid: %s)\n" "$nspid"
+        cmd::stop "$@" > /dev/null 2>&1
+    }
+    cmd::start "$@"
+}
+
+cmd::help() { usage; }
+
+init::set_img() {
+    [[ -f ${OPTIONS[img]} ]] || pure::die "File not found: %s\n" "${OPTIONS[img]}"
+    OPTIONS[img]=$(realpath "${OPTIONS[img]}")
+    GLOBAL[imghash]=$(echo -n "${OPTIONS[img]}" | sha256sum | awk '{print $1}')
+    GLOBAL[imghash]="${GLOBAL[imghash]:0:8}"
+    GLOBAL[pidfile]="/tmp/lina_${GLOBAL[imghash]}.pid"
+    GLOBAL[mountpoint]="/mnt/lina/${GLOBAL[imghash]}"
+}
+
+init::options() {
+    declare -gA OPTIONS=()
+    declare -gA GLOBAL=()
+    declare -ga ARGS=()
+
+    while (($# > 0)); do
+        case "$1" in
+            -i | --img | --img=*)
+                if [[ $1 == --img=* ]]; then
+                    OPTIONS[img]="${1#*=}"
+                    local n=1
+                else
+                    OPTIONS[img]="${2:-}"
+                    local n=2
+                fi
+                [[ -n ${OPTIONS[img]} ]] || pure::die "--img requires a path argument.\n"
+                init::set_img
+                shift $n
+                ;;
+            -S | --android-storage)
+                OPTIONS[android_storage]=1
+                shift
+                ;;
+            *)
+                ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+main() {
+    SCRIPT_ARGV=("$@")
+    init::options "$@"
+    set -- "${ARGS[@]}"
+
+    local fn="cmd::${1:-}"
+    [[ -n $1 ]] || pure::die "Missing command.\nRun '${0##*/} help' for usage information.\n"
+
+    if declare -f "$fn" > /dev/null 2>&1; then
+        "$fn" "${@:2}"
+    else
+        pure::die "Unknown command: %s\nRun '${0##*/} help' for usage information.\n" "$1"
+    fi
+}
+
+[[ ${BASH_SOURCE[0]} == "${0}" ]] && main "$@"
