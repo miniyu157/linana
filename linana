@@ -12,14 +12,9 @@ pure::die() {
     exit 1
 }
 
-# 获取当前容器是否运行，运行返回 0
+# 获取当前容器是否运行，自动失败返回状态码
 this::check_running() {
-    [[ -f ${GLOBAL[pidfile]} ]] || return 1
-    local sleep_pid=$(< "${GLOBAL[pidfile]}")
-    [[ -n $sleep_pid ]] || return 1
-    local mntns=$(pure::get_mntns_by_pid "$sleep_pid")
-    [[ -n $mntns ]] || return 1
-    nsenter -t "$sleep_pid" -m -- mountpoint -q "${GLOBAL[mountpoint]}" || return 1
+    [[ -f ${GLOBAL[pidfile]} ]] && nsenter -t "$(< "${GLOBAL[pidfile]}")" -m -- mountpoint -q "${GLOBAL[mountpoint]}" 2> /dev/null
 }
 
 # 获取当前容器的实例，打印 PID 或 mntns
@@ -140,8 +135,7 @@ cmd::exec() {
     check::is_already_running
 
     local nspid=$(this::ensure_ns pid)
-    local cmd=("$@")
-    exec -c nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su -c "${cmd[*]}"
+    exec -c nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su -c "$*"
 }
 
 cmd::ps() {
@@ -195,12 +189,12 @@ cmd::stop() {
 
     local nspid=$(this::ensure_ns pid)
     local mntns=$(this::ensure_ns mntns)
-
+    local pid_dir pid pid_ns
     # 终止命名空间内所有进程（排除 sleep 自身）
     for pid_dir in /proc/[0-9]*; do
-        local pid="${pid_dir##*/}"
+        pid="${pid_dir##*/}"
         [[ $pid == "$nspid" ]] && continue
-        local pid_ns=$(pure::get_mntns_by_pid "$pid" 2> /dev/null)
+        pid_ns=$(pure::get_mntns_by_pid "$pid" 2> /dev/null)
         [[ $pid_ns == "$mntns" ]] && kill -9 "$pid" 2> /dev/null || true
     done
 
@@ -227,18 +221,8 @@ cmd::restart() {
 
 cmd::help() { usage; }
 
-init::set_img() {
-    [[ -f ${OPTIONS[img]} ]] || pure::die "File not found: %s\n" "${OPTIONS[img]}"
-    OPTIONS[img]=$(realpath "${OPTIONS[img]}")
-    GLOBAL[imghash]=$(echo -n "${OPTIONS[img]}" | sha256sum | awk '{print $1}')
-    GLOBAL[imghash]="${GLOBAL[imghash]:0:8}"
-    GLOBAL[pidfile]="/tmp/lina_${GLOBAL[imghash]}.pid"
-    GLOBAL[mountpoint]="/mnt/lina/${GLOBAL[imghash]}"
-}
-
 init::options() {
-    declare -gA OPTIONS=()
-    declare -gA GLOBAL=()
+    declare -gA OPTIONS=() GLOBAL=()
     declare -ga ARGS=()
 
     while (($# > 0)); do
@@ -252,7 +236,13 @@ init::options() {
                     shift 2
                 fi
                 [[ -n ${OPTIONS[img]} ]] || pure::die "--img requires a path argument.\n"
-                init::set_img
+
+                [[ -f ${OPTIONS[img]} ]] || pure::die "File not found: %s\n" "${OPTIONS[img]}"
+                OPTIONS[img]=$(realpath "${OPTIONS[img]}")
+                GLOBAL[imghash]=$(echo -n "${OPTIONS[img]}" | sha256sum | awk '{print $1}')
+                GLOBAL[imghash]="${GLOBAL[imghash]:0:8}"
+                GLOBAL[pidfile]="/tmp/lina_${GLOBAL[imghash]}.pid"
+                GLOBAL[mountpoint]="/mnt/lina/${GLOBAL[imghash]}"
                 ;;
             -S | --android-storage)
                 OPTIONS[android_storage]=1
