@@ -83,7 +83,7 @@ linana 将状态交给 Linux 本身表达：
     chroot /mnt/lina/<hash> → 容器就绪
 
     enter/exec:  nsenter → chroot → /bin/su - .../-c ...
-    proc:        遍历 /proc，按 mntns 过滤进程
+    top:         遍历 /proc，按 mntns 过滤进程
     ps:          遍历 /tmp/lina_*.pid，检查存活 → 列出所有容器
 
     stop:
@@ -122,7 +122,7 @@ Commands (manage a specific container -- requires --img):
   restart                   Stop (if running) then start the container
   enter [USER=root]         Start the container if needed, then launch a login shell
   exec <command...>         Execute a command inside a running container
-  proc                      List processes inside the running container
+  top                       List topesses inside the running container
 
 Commands (manage all containers -- no --img needed):
   ps                        List all containers (id, pid, mntns, img, mp)

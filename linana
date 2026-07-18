@@ -58,43 +58,20 @@ this::mountfs() {
 
     nsenter -t "$nspid" -m -u -- bash -s "${GLOBAL[mountpoint]}" "$mntns" "${OPTIONS[android_storage]:-0}" << 'SCRIPT'
 MP=$1 NS=$2 STORAGE=${3:-0}
-
-bind_srcs=(/dev /dev/pts /proc /sys)
-
-for src in "${bind_srcs[@]}"; do
-    [[ -d $src ]] || continue
-
-    dst="$MP$src" dst="${dst%/}" dst="${dst//+(\/)/}"
+mounts=(/dev:bind /dev/pts:bind /proc:bind /sys:bind /tmp:tmpfs /run:tmpfs)
+((STORAGE==1)) && mounts+=("/storage/emulated/0:rbind")
+for entry in "${mounts[@]}"; do
+    IFS=: read -r src mtype <<< "$entry"
+    dst="${MP%/}${src}"
     mkdir -p "$dst"
-    mountpoint -q "$dst" || {
-        echo "[mntns:${NS}] ${src} -> ${dst}"
-        mount --bind "$src" "$dst"
-    }
+    mountpoint -q "$dst" && continue
+    echo "[mntns:$NS] ${src} -> ${dst}"
+    case $mtype in
+        bind)  [[ -d $src ]] && mount --bind "$src" "$dst" ;;
+        tmpfs) mount -t tmpfs tmpfs "$dst" ;;
+        rbind) [[ -d $src ]] && mount --rbind "$src" "$dst" ;;
+    esac
 done
-
-tmpfs_dirs=(/tmp /run)
-
-for dir in "${tmpfs_dirs[@]}"; do
-    dst="$MP$dir"
-    mkdir -p "$dst"
-    mountpoint -q "$dst" || {
-        echo "[mntns:${NS}] tmpfs -> ${dst}"
-        mount -t tmpfs tmpfs "$dst"
-    }
-done
-
-# Android storage: only when --android-storage flag is active
-[[ $STORAGE == 1 ]] && {
-    src="/storage/emulated/0"
-    dst="$MP/storage/emulated/0"
-    [[ -d $src ]] && {
-        mkdir -p "$dst"
-        mountpoint -q "$dst" || {
-            echo "[mntns:${NS}] ${src} -> ${dst}"
-            mount --rbind "$src" "$dst"
-        }
-    }
-}
 SCRIPT
 }
 
@@ -127,7 +104,7 @@ ${_title}Commands (manage a specific container -- requires --img):${_off}
   restart                   Stop (if running) then start the container
   enter [USER=root]         Start the container if needed, then launch a login shell
   exec <command...>         Execute a command inside a running container
-  proc                      List processes inside the running container
+  top                       List processes inside the running container
 
 ${_title}Commands (manage all containers -- no --img needed):${_off}
   ps                        List all containers (id, pid, mntns, img, mp)
@@ -144,7 +121,7 @@ check::img() {
     [[ -n ${OPTIONS[img]} ]] || pure::die "--img is required for this command.\n"
 }
 
-cmd::proc() {
+cmd::top() {
     check::img
     app::escalate "$@"
     check::is_already_running
@@ -242,7 +219,7 @@ cmd::stop() {
 cmd::restart() {
     this::check_running && {
         local nspid=$(this::ensure_ns pid)
-        printf "Stopping container...(nspid: %s)\n" "$nspid"
+        printf "Stopping container (nspid: %s)...\n" "$nspid"
         cmd::stop "$@" > /dev/null 2>&1
     }
     cmd::start "$@"
@@ -269,14 +246,13 @@ init::options() {
             -i | --img | --img=*)
                 if [[ $1 == --img=* ]]; then
                     OPTIONS[img]="${1#*=}"
-                    local n=1
+                    shift
                 else
                     OPTIONS[img]="${2:-}"
-                    local n=2
+                    shift 2
                 fi
                 [[ -n ${OPTIONS[img]} ]] || pure::die "--img requires a path argument.\n"
                 init::set_img
-                shift $n
                 ;;
             -S | --android-storage)
                 OPTIONS[android_storage]=1
