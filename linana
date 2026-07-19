@@ -62,7 +62,9 @@ for entry in "${mounts[@]}"; do
     dst="${MP%/}${src}"
     mkdir -p "$dst"
     mountpoint -q "$dst" && continue
-    echo "  $src -> $dst"
+    display_src="$src"
+    [[ $mtype == tmpfs ]] && display_src="tmpfs"
+    echo "  $display_src -> $dst"
     case $mtype in
         bind)  [[ -d $src ]] && mount --bind "$src" "$dst" ;;
         tmpfs) mount -t tmpfs tmpfs "$dst" ;;
