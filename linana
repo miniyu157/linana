@@ -138,7 +138,8 @@ cmd::exec() {
     check::is_already_running
 
     local nspid=$(this::ensure_ns pid)
-    exec -c nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su -c "$*"
+    local cmd=("$@")
+    exec -c nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su -c "${cmd[*]}"
 }
 
 cmd::ps() {
