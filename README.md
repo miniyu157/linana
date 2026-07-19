@@ -1,6 +1,6 @@
 # linana
 
-> 极简、零依赖的容器运行时，纯 Bash 实现（220LOC）。
+> 极简、零依赖的容器运行时，纯 Bash 实现（<250LOC）。
 
 [![License](https://img.shields.io/badge/license-MIT-pink)](./LICENSE)
 
@@ -8,11 +8,9 @@
 
 ## 🐱 这是什么
 
-linana 是一个极简的容器运行时，纯 Bash 实现。
+linana 是我的 Bash 毕业作，一个小于 250 LOC 的完整容器运行时。
 
 ~~也可以叫李娜娜（划掉）~~
-
-> 这是我的 Bash 毕业作，一个仅 220 LOC 的容器运行时。
 
 > 它的简洁并非来自删减功能，而是来自选择正确的抽象。
 
@@ -26,7 +24,9 @@ linana 不是这些神作的替代品。它是你在形如 Android 一般的受�
   允许通过命令参数挂载 /storage 存储。
 - 使用 rootfs 文件路径的 hash 做引用寻址，实现无状态管理。
 
-## 🧬 为什么只有 220 LOC？
+![usage](./usage.png)
+
+## 🧬 为什么只有 250 LOC？
 
 linana 并不是一个容器平台，而是一个 Runtime。
 
@@ -37,9 +37,7 @@ linana 并不是一个容器平台，而是一个 Runtime。
 Namespace、Mount、Process 都直接交给 Linux 管理，
 linana 只负责将它们组合成一个一致、可预测的 CLI。
 
-220 LOC 并不是目标，而是这种设计自然得到的结果。
-
-![usage](./usage.png)
+250 LOC 并不是目标，而是这种设计自然得到的结果。
 
 ---
 
@@ -62,7 +60,7 @@ linana 不保存状态，而是让 Linux 本身成为状态来源。
 
 容器实例采用基于 rootfs 路径的内容寻址设计，通过 hash 自动生成唯一引用，实现无需数据库的无状态管理。
 
-220 LOC 并不是追求极限压缩代码，而是边界裁剪后的自然结果。
+250 LOC 并不是追求极限压缩代码，而是边界裁剪后的自然结果。
 当 Runtime 只负责 Runtime，本不属于它的复杂度就不需要存在。
 
 它使用最少的代码，将 rootfs 引用、namespace 创建、mount 生命周期、容器进入以及 CLI 状态机组合成一个完整运行时。
@@ -136,10 +134,11 @@ Commands (manage a specific container -- requires --img):
   restart                   Stop (if running) then start the container
   enter [USER=root]         Start the container if needed, then launch a login shell
   exec <command...>         Execute a command inside a running container
-  top                       List topesses inside the running container
+  top                       List processes inside the running container
+  inspect                   Show detailed information about the container
 
 Commands (manage all containers -- no --img needed):
-  ps                        List all containers (id, pid, mntns, img, mp)
+  ps                        List running containers (id, pid, mntns, img, mp)
   help                      Show this help message
 ```
 
