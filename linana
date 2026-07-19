@@ -41,7 +41,7 @@ this::ensure_ns() {
 # 为当前容器挂载镜像
 this::set_mp() {
     mountpoint -q "${GLOBAL[mountpoint]}" || {
-        printf "%b" "Mouunt IMG: ${OPTIONS[img]} -> ${GLOBAL[mountpoint]}\n"
+        printf "%b" "Mount IMG: ${OPTIONS[img]} -> ${GLOBAL[mountpoint]}\n"
         mkdir -p "${GLOBAL[mountpoint]}"
         mount "${OPTIONS[img]}" "${GLOBAL[mountpoint]}"
     }
