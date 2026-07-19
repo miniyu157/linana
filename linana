@@ -102,6 +102,7 @@ ${_title}Commands (manage a specific container -- requires --img):${_off}
   enter [USER=root]         Start the container if needed, then launch a login shell
   exec <command...>         Execute a command inside a running container
   top                       List processes inside the running container
+  inspect                   Show detailed information about the container
 
 ${_title}Commands (manage all containers -- no --img needed):${_off}
   ps                        List all containers (id, pid, mntns, img, mp)
@@ -152,6 +153,27 @@ cmd::ps() {
         mp="/mnt/lina/${hash}"
         printf "id=%s pid=%s mntns=%s img=%s mp=%s\n" "$hash" "$nspid" "$mntns" "$img" "$mp"
     done
+}
+
+cmd::inspect() {
+    check::img
+    app::escalate "$@"
+    cat << EOF
+Container:
+  ${GLOBAL[imghash]}
+
+Status:
+  $(this::check_running && echo Running || echo Stopped)
+
+PID:
+  $(this::check_running && this::ensure_ns pid || echo "No Running")
+
+Mntns:
+  $(this::check_running && this::ensure_ns mntns || echo "No Running")
+
+MountPoint:
+  $(this::check_running && echo Mounted || echo No Mount) ${GLOBAL[mountpoint]}
+EOF
 }
 
 # 进入容器终端，未启动则自动启动
