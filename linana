@@ -239,7 +239,7 @@ cmd::stop() {
     # 卸载挂载点
     mountpoint -q "${GLOBAL[mountpoint]}" 2> /dev/null && (umount "${GLOBAL[mountpoint]}" || umount -l "${GLOBAL[mountpoint]}")
 
-    rm -r "${GLOBAL[mountpoint]}"
+    rmdir "${GLOBAL[mountpoint]}"
     rm -f "${GLOBAL[pidfile]}"
 
     printf "%s\n" "${GLOBAL[imghash]}"
