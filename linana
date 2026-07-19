@@ -41,7 +41,7 @@ this::ensure_ns() {
 # 为当前容器挂载镜像
 this::set_mp() {
     mountpoint -q "${GLOBAL[mountpoint]}" || {
-        printf "%b" "[mount] ${OPTIONS[img]} -> ${GLOBAL[mountpoint]}\n"
+        printf "%b" "Mouunt IMG: ${OPTIONS[img]} -> ${GLOBAL[mountpoint]}\n"
         mkdir -p "${GLOBAL[mountpoint]}"
         mount "${OPTIONS[img]}" "${GLOBAL[mountpoint]}"
     }
@@ -52,8 +52,9 @@ this::mountfs() {
     local nspid=$(this::ensure_ns pid)
     local mntns=$(this::ensure_ns mntns)
 
-    nsenter -t "$nspid" -m -u -- bash -s "${GLOBAL[mountpoint]}" "$mntns" "${OPTIONS[android_storage]:-0}" << 'SCRIPT'
-MP=$1 NS=$2 STORAGE=${3:-0}
+    printf "Mount FileSystem...(mntns: %s)\n" "$mntns"
+    nsenter -t "$nspid" -m -u -- bash -s "${GLOBAL[mountpoint]}" "$mntns" "${OPTIONS[android_storage]:-0}" "$nspid" << 'SCRIPT'
+MP=$1 NS=$2 STORAGE=${3:-0} PID="$4"
 mounts=(/dev:bind /dev/pts:bind /proc:bind /sys:bind /tmp:tmpfs /run:tmpfs)
 ((STORAGE==1)) && mounts+=("/storage/emulated/0:rbind")
 for entry in "${mounts[@]}"; do
@@ -61,7 +62,7 @@ for entry in "${mounts[@]}"; do
     dst="${MP%/}${src}"
     mkdir -p "$dst"
     mountpoint -q "$dst" && continue
-    echo "[mntns:$NS] ${src} -> ${dst}"
+    echo "  $src -> $dst"
     case $mtype in
         bind)  [[ -d $src ]] && mount --bind "$src" "$dst" ;;
         tmpfs) mount -t tmpfs tmpfs "$dst" ;;
@@ -123,11 +124,9 @@ cmd::top() {
     check::is_already_running
 
     local mntns=$(this::ensure_ns mntns)
-    ps -e -o uid,pid,mntns,args --no-headers |
-        awk -v mntns="$mntns" '
+    ps -e -o uid,pid,mntns,args --no-headers | awk -v mntns="$mntns" '
     BEGIN { printf "%6s %7s  %s\n", "UID", "PID", "COMMAND" }
-    $3 == mntns { printf "%6s %7s  %s\n", $1, $2, substr($0, index($0, $4)) }
-'
+    $3 == mntns { printf "%6s %7s  %s\n", $1, $2, substr($0, index($0, $4)) }'
 }
 
 cmd::exec() {
@@ -172,10 +171,12 @@ cmd::start() {
 
     this::check_running && return 0
 
+    printf "Starting container: %s...\n" "${GLOBAL[imghash]}"
+
     this::set_mp
 
     local nspid=$(this::ensure_ns pid)
-    printf "nspid: %s\n" "$nspid"
+    printf "PID: %s\n" "$nspid"
 
     this::mountfs
 
@@ -191,13 +192,22 @@ cmd::stop() {
     local nspid=$(this::ensure_ns pid)
     local mntns=$(this::ensure_ns mntns)
     local pid_dir pid pid_ns
+    local pids=()
     # 终止命名空间内所有进程（排除 sleep 自身）
     for pid_dir in /proc/[0-9]*; do
         pid="${pid_dir##*/}"
         [[ $pid == "$nspid" ]] && continue
         pid_ns=$(pure::get_mntns_by_pid "$pid" 2> /dev/null)
-        [[ $pid_ns == "$mntns" ]] && kill -9 "$pid" 2> /dev/null || true
+        if [[ $pid_ns == "$mntns" ]]; then
+            kill "$pid" 2> /dev/null || true
+            pids+=("$pid")
+        fi
     done
+
+    if ((${#pids[@]} > 0)); then
+        sleep 2
+        kill -9 "${pids[@]}" 2> /dev/null || true
+    fi
 
     # 杀死 sleep，内核自动清理挂载命名空间
     kill "$nspid" 2> /dev/null || true
@@ -214,7 +224,7 @@ cmd::stop() {
 cmd::restart() {
     this::check_running && {
         local nspid=$(this::ensure_ns pid)
-        printf "Stopping container (nspid: %s)...\n" "$nspid"
+        printf "Stopping container: %s (PID: %s)...\n" "${GLOBAL[imghash]}" "$nspid"
         cmd::stop "$@" > /dev/null 2>&1
     }
     cmd::start "$@"
