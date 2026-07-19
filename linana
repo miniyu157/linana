@@ -105,7 +105,7 @@ ${_title}Commands (manage a specific container -- requires --img):${_off}
   inspect                   Show detailed information about the container
 
 ${_title}Commands (manage all containers -- no --img needed):${_off}
-  ps                        List all containers (id, pid, mntns, img, mp)
+  ps                        List running containers (id, pid, mntns, img, mp)
   help                      Show this help message
 EOF
     exit 1
