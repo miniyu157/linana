@@ -10,7 +10,8 @@
 
 ![usage](./usage.png)
 
-> 十分气派的 usage CLI
+> `> rg -cv '^\s*(#|$)' linana`  
+> `223`
 
 ---
 
