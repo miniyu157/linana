@@ -216,21 +216,17 @@ cmd::stop() {
     check::is_already_running
 
     local nspid=$(this::ensure_ns pid)
-    local mntns=$(this::ensure_ns mntns)
-    local pid_dir pid pid_ns
+    local pid_dir pid
     local pids=()
-    # 终止命名空间内所有进程（排除 sleep 自身）
+    # 收集命名空间内所有进程（排除 sleep 自身），用 -ef 内建测试零 fork
     for pid_dir in /proc/[0-9]*; do
         pid="${pid_dir##*/}"
         [[ $pid == "$nspid" ]] && continue
-        pid_ns=$(pure::get_mntns_by_pid "$pid" 2> /dev/null)
-        if [[ $pid_ns == "$mntns" ]]; then
-            kill "$pid" 2> /dev/null || true
-            pids+=("$pid")
-        fi
+        [[ /proc/$pid/ns/mnt -ef /proc/$nspid/ns/mnt ]] && pids+=("$pid")
     done
 
     if ((${#pids[@]} > 0)); then
+        kill "${pids[@]}" 2> /dev/null || true
         sleep 2
         kill -9 "${pids[@]}" 2> /dev/null || true
     fi
