@@ -7,7 +7,7 @@ pure::get_mntns_by_pid() {
 }
 
 # Print error message to stderr and exit
-pure::die() {
+app::die() {
     # shellcheck disable=SC2059
     printf -- "$@" >&2
     exit 1
@@ -114,11 +114,11 @@ EOF
 }
 
 check::is_already_running() {
-    this::check_running || pure::die "Container not running: %s\n" "${GLOBAL[imghash]}"
+    this::check_running || app::die "Container not running: %s\n" "${GLOBAL[imghash]}"
 }
 
 check::img() {
-    [[ -n ${OPTIONS[img]} ]] || pure::die "--img is required for this command.\n"
+    [[ -n ${OPTIONS[img]} ]] || app::die "--img is required for this command.\n"
 }
 
 cmd::top() {
@@ -271,9 +271,9 @@ init::options() {
                     OPTIONS[img]="${2:-}"
                     shift 2
                 fi
-                [[ -n ${OPTIONS[img]} ]] || pure::die "--img requires a path argument.\n"
+                [[ -n ${OPTIONS[img]} ]] || app::die "--img requires a path argument.\n"
 
-                [[ -f ${OPTIONS[img]} ]] || pure::die "File not found: %s\n" "${OPTIONS[img]}"
+                [[ -f ${OPTIONS[img]} ]] || app::die "File not found: %s\n" "${OPTIONS[img]}"
                 OPTIONS[img]=$(realpath "${OPTIONS[img]}")
                 GLOBAL[imghash]=$(echo -n "${OPTIONS[img]}" | sha256sum | awk '{print $1}')
                 GLOBAL[imghash]="${GLOBAL[imghash]:0:8}"
@@ -298,12 +298,12 @@ main() {
     set -- "${ARGS[@]}"
 
     local fn="cmd::${1:-}"
-    [[ -n $1 ]] || pure::die "Missing command.\nRun '${0##*/} help' for usage information.\n"
+    [[ -n $1 ]] || app::die "Missing command.\nRun '${0##*/} help' for usage information.\n"
 
     if declare -f "$fn" > /dev/null 2>&1; then
         "$fn" "${@:2}"
     else
-        pure::die "Unknown command: %s\nRun '${0##*/} help' for usage information.\n" "$1"
+        app::die "Unknown command: %s\nRun '${0##*/} help' for usage information.\n" "$1"
     fi
 }
 
