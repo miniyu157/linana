@@ -64,7 +64,8 @@ for entry in "${mounts[@]}"; do
     mkdir -p "$dst"
     mountpoint -q "$dst" && continue
     case $mtype in
-        bind|rbind) printf "%b" "  $src -> $dst\n"
+        bind|rbind) display=$src; [[ -d $src ]] || display="SKIP"
+                    printf "%b" "  $display -> $dst\n"
                     [[ -d $src ]] && mount --$mtype "$src" "$dst" ;;
         tmpfs)      printf "%b" "  tmpfs -> $dst\n"
                     mount -t tmpfs tmpfs "$dst" ;;
@@ -76,7 +77,7 @@ SCRIPT
 app::escalate() {
     local shell=$(command -v bash || printf "%s" "/data/data/com.termux/files/usr/bin/bash")
     (($(id -u) != 0)) && {
-        [[ -f /system/build.prop ]] || printf "Not an Android environment. Automatic privilege escalation may fail. Please run with sudo.\n" >&2
+        [[ -f /system/build.prop ]] || app::die "Non-Android environment. Please run with sudo.\n"
         exec su --mount-master -c "$(printf "%q " env -i PATH=/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin HOME=/data/data/com.termux/files/home/.suroot TERM="$TERM" LD_PRELOAD="/data/data/com.termux/files/usr/lib/libtermux-exec-ld-preload.so" "$shell" "$(readlink -f "$0")" "${SCRIPT_ARGV[@]}")"
     }
 }
