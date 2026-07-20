@@ -86,9 +86,10 @@ usage() {
     cat << EOF
 ${_b}${0##*/} -- A minimal chroot container runtime implemented in Bash${_off}
 
-Automatically preserves the Termux environment during privilege escalation.
-Only mount and UTS namespaces are used — PID and USER namespace support is not required.
-${_hl}https://github.com/miniyu157/linana${_off}
+${_yellow}　 ／l、 ${_off}Automatically preserves the Termux environment   ${_err}/ᐠ˵>˕<˵マ  
+${_yellow} （ﾟ､ ｡ ７  ${_off}during privilege escalation. Only mount and UTS   ${_yellow}₍^. .^₎⟆
+${_yellow}　l、 ~ヽ    ${_off}namespaces are used — PID and USER namespace support is not required.
+${_yellow}　じしf_,)ノ  ${_hl}https://github.com/miniyu157/linana${_off}   ${_cyan}₍^ >ヮ<^₎${_off}
 
 ${_title}Usage: ${0##*/} [Options] <Command> [args]${_off}
 
@@ -278,7 +279,7 @@ init::options() {
 }
 
 main() {
-    [[ -t 1 || -n ${FORCE_COLOR:-} ]] && declare -g _b=$'\e[1m' _hl=$'\e[35m' _title=$'\e[1;3;4m' _off=$'\e[0m' _err=$'\e[31m' _ok=$'\e[32m' _desc=$'\e[2m'
+    [[ -t 1 || -n ${FORCE_COLOR:-} ]] && declare -g _b=$'\e[1m' _hl=$'\e[35m' _yellow=$'\e[33m' _cyan=$'\e[34m' _title=$'\e[1;3;4m' _off=$'\e[0m' _err=$'\e[31m' _ok=$'\e[32m' _desc=$'\e[2m'
 
     SCRIPT_ARGV=("$@")
     init::options "$@"
