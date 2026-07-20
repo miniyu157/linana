@@ -1,91 +1,57 @@
 # linana
 
-> 极简、零依赖的容器运行时，纯 Bash 实现（<250LOC）。
+> 一个小于 250LOC 的 Bash 程序，完整实现了
+> `start / stop / restart / enter / exec / top / inspect / ps / help`
+> 九个子命令，覆盖了容器的完整生命周期管理。
+>
+> 零依赖。仅使用 Linux 内核的 mount 和 UTS 命名空间。
 
 [![License](https://img.shields.io/badge/license-MIT-pink)](./LICENSE)
+
+![usage](./usage.png)
+
+> 十分气派的 usage CLI
 
 ---
 
 ## 🐱 这是什么
 
-linana 是我的 Bash 毕业作，一个小于 250 LOC 的完整容器运行时。
+linana 是我的 Bash 毕业作，一个最小化的纯 Bash 容器运行时。
 
 ~~也可以叫李娜娜（划掉）~~
 
-> 它的简洁并非来自删减功能，而是来自选择正确的抽象。
+它的极简并非来自对功能的粗暴阉割，而是建立在最纯粹的抽象之上。这是一个反直觉的实验：**用 Bash 证明，系统工程的复杂度不在于语言，而在于思维模型。**
 
 **与 ruri/Droidspaces/Docker 的区别：**
 
-linana 不是这些神作的替代品。它是你在形如 Android 一般的受限环境时想跑容器，不想折腾受限内核，也不想为了简单需求而折腾更深入时的好帮手。
+linana 不是这些神作的替代品。它是当你在 Android 这样受限的环境中，不想重新编译内核，不想额外部署 Daemon，只想快速拉起一个纯净的 chroot 环境时，linana 是一个给力的好帮手。
 
-- 只对已有的 rootfs 镜像进行操作。
-- 只用 **mount + UTS** 两个命名空间，较高兼容性。
-- 适配 Android，自动提权和加载 Termux 环境，  
-  允许通过命令参数挂载 /storage 存储。
-- 使用 rootfs 文件路径的 hash 做引用寻址，实现无状态管理。
+- **纯粹 Runtime**: 只对已有的 rootfs 镜像进行操作。
+- **兼容性极高**：仅使用 `mount` + `UTS` 命名空间，避开受限内核的限制。
+- **Android 原生适配**：自动处理 su 提权与 Termux 环境继承，支持挂载 `/storage`。
+- **内容寻址**：使用 rootfs IMG 路径的 Hash 作为容器唯一标识，实现无状态管理。
 
-![usage](./usage.png)
+## 🧬 为什么只有 240 LOC？
 
-## 🧬 为什么只有 250 LOC？
+linana 并不是一个容器“平台”，它将自己严格限定为一个 **Runtime**。240 行代码不是刻意压缩的目标，而是边界裁剪后的自然结果：
 
-linana 并不是一个容器平台，而是一个 Runtime。
+- **无后台 Daemon**：不驻留任何守护进程，命令即发即弃。
+- **Linux 即状态中心**：不使用文件或数据库保存容器状态。Namespace 的存活就是容器的生命周期；系统的 mount 树就是容器的挂载状态。linana 不“记录”状态，它直接向内核“查询”状态。
+- **最小特权正交组合**：除挂载与隔离外的所有复杂性，全部交还给宿主机系统。
 
-它不维护 daemon；
-不保存数据库状态；
-不重新实现 Linux 已有的机制。
+当本不属于 Runtime 的复杂度被剥离后，剩下的就是纯粹的系统调用映射。
 
-Namespace、Mount、Process 都直接交给 Linux 管理，
-linana 只负责将它们组合成一个一致、可预测的 CLI。
+## ⚙️ 容器状态机模型
 
-250 LOC 并不是目标，而是这种设计自然得到的结果。
-
----
-
-linana 的目标不是实现一个功能堆叠的容器平台，而是在受限的 Android 环境中，用最少的抽象实现一个真正可用的容器运行时。
-
-它刻意避免引入不必要的复杂度：
-
-- 不维护后台 daemon；
-- 不依赖数据库保存容器状态；
-- 不模拟 Docker API 或额外抽象层；
-- 不要求修改 Android 内核配置。
-
-Runtime 之外的复杂度，都刻意留给 Linux 自己表达。
-
-linana 不保存状态，而是让 Linux 本身成为状态来源。
-
-- namespace 生命周期由内核管理；
-- mount 状态由挂载树表达；
-- 进程生命周期决定容器生命周期。
-
-容器实例采用基于 rootfs 路径的内容寻址设计，通过 hash 自动生成唯一引用，实现无需数据库的无状态管理。
-
-250 LOC 并不是追求极限压缩代码，而是边界裁剪后的自然结果。
-当 Runtime 只负责 Runtime，本不属于它的复杂度就不需要存在。
-
-它使用最少的代码，将 rootfs 引用、namespace 创建、mount 生命周期、容器进入以及 CLI 状态机组合成一个完整运行时。
-
-代码结构遵循 Unix 工具设计理念：
-
-- 清晰的命令分层；
-- 可预测的状态转换；
-- 最小化外部依赖；
-- 通过现有 Linux 工具组合复杂能力。
-
-最终得到的不是一个“大而全”的容器平台，而是一个小巧、透明、容易审计和维护的 Android 原生 chroot runtime。
-它更像一个 Runtime，而不是一个 Platform。
-
----
-
-**实现 start / enter / restart / exec ... 那些子命令与无状态管理的说明大概如下：**
+所有的九个子命令，全部基于以下这个极简的内核状态机模型推演而来：
 
 ```plaintext
-    unshare -m -u sleep infinity    参数指定 IMGPATH（非必选）
+    unshare -m -u sleep infinity    通过命令行参数指定 IMGPATH
            ↓                                 ↓
-          PID                      sha256(IMGPATH) 取前八位 hash
+      得到主进程 PID                  sha256(IMGPATH) 取前 8 位 hash
            ↓                                 ↓
-           │                   ┌─ PID 文件: /tmp/lina_<hash>.pid
-           │                   └─ 挂载点:   /mnt/lina/<hash>
+           │                   ┌─ 状态锚点: /tmp/lina_<hash>.pid
+           │                   └─ 挂载锚点: /mnt/lina/<hash>
            │                                 ↓
            │                   mount $IMG → /mnt/lina/<hash>
            ↓                                 ↓
@@ -97,49 +63,50 @@ linana 不保存状态，而是让 Linux 本身成为状态来源。
            ↓
     chroot /mnt/lina/<hash> → 容器就绪
 
-    enter/exec:  nsenter → chroot → /bin/su - .../-c ...
-    top:         遍历 /proc，按 mntns 过滤进程
-    ps:          遍历 /tmp/lina_*.pid，检查存活 → 列出所有容器
-
-    stop:
-      kill 命名空间内所有进程 (按 mntns 匹配)
-           ↓
-      kill sleep (内核自动回收命名空间)
-           ↓
-      umount /mnt/lina/<hash>
-           ↓
-      rm pidfile
+    --------------------------------------------------------------
+    enter/exec : nsenter → chroot → /bin/su - ... / -c ...
+    top        : 遍历 /proc，直接按 mntns inode 过滤进程
+    ps         : 遍历 /tmp/lina_*.pid，校验存活状态 → 列出所有容器
+    stop       : kill 命名空间内所有进程 → kill sleep → umount
 ```
 
 ## 😺 快速开始
 
-```plaintext
-...
-```
+假设你已经准备好了一个 ext4 rootfs 镜像文件 `image.img`
 
-## 🐭 命令一览
+```bash
+# 1) 只准备好容器，使其在后台保持 mntns PID 和挂载状态，不进入终端或运行命令
+linana -i image.img start
 
-~~先放个 usage 在这~~
+# 2) 进入容器终端（若容器未运行，自动启动；默认用户为 root）
+linana -i image.img enter
 
-```console
-Usage: linana [Options] <Command> [args]
+# 3) 进入容器终端，指定登录用户
+linana -i image.img enter <user>
 
-Options:
-  -i, --img <PATH>          Specify the path to the rootfs image
-  -S, --android-storage     Mount Android internal storage (/storage/emulated/0) into the container (Android only)
+# 4) 在已运行的容器中直接执行命令
+linana -i image.img exec uname -a
 
-Commands (manage a specific container -- requires --img):
-  start                     Start the container (idempotent: no-op if already running)
-  stop                      Stop the running container and clean up
-  restart                   Stop (if running) then start the container
-  enter [USER=root]         Start the container if needed, then launch a login shell
-  exec <command...>         Execute a command inside a running container
-  top                       List processes inside the running container
-  inspect                   Show detailed information about the container
+# 5) 连带 Android 存储一并挂载进容器（restart/enter 均会运行完整的容器启动逻辑）
+linana -S -i image.img start
 
-Commands (manage all containers -- no --img needed):
-  ps                        List running containers (id, pid, mntns, img, mp)
-  help                      Show this help message
+# 6) 列出容器内所有进程
+linana -i image.img top
+
+# 7) 查看容器的详细运行状态（是否启动、PID、mntns、挂载点等）
+linana -i image.img inspect
+
+# 8) 列出所有运行中的容器
+linana ps
+
+# 9) 重启容器（先 stop 再 start）
+linana -i image.img restart
+
+# 10) 停止容器并清理所有相关资源（进程、挂载点、pid 文件等）
+linana -i image.img stop
+
+# 11) 显示完整帮助信息
+linana help
 ```
 
 ## 🐰 Termux / Android
