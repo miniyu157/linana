@@ -248,7 +248,7 @@ cmd::restart() {
     this::check_running && {
         local nspid=$(this::ensure_ns pid)
         printf "Stopping container: %s (PID: %s)...\n" "${GLOBAL[imghash]}" "$nspid"
-        cmd::stop "$@" > /dev/null 2>&1
+        cmd::stop "$@"
     }
     cmd::start "$@"
 }
