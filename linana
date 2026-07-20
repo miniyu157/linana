@@ -205,28 +205,20 @@ cmd::stop() {
     app::escalate "$@"
     check::is_already_running
 
-    local nspid=$(this::ensure_ns pid) pid_dir pid
-    local pids=()
-    # 收集命名空间内所有进程（排除 sleep 自身），用 -ef 内建测试零 fork
+    local pid_dir pid pids=()
     for pid_dir in /proc/[0-9]*; do
         pid="${pid_dir##*/}"
-        [[ $pid == "$nspid" ]] && continue
-        [[ /proc/$pid/ns/mnt -ef /proc/$nspid/ns/mnt ]] && pids+=("$pid")
+        [[ /proc/$pid/root -ef ${GLOBAL[mountpoint]} ]] && pids+=("$pid")
     done
-
     if ((${#pids[@]})); then
         kill "${pids[@]}" 2> /dev/null || true
         sleep 2
         kill -9 "${pids[@]}" 2> /dev/null || true
     fi
 
-    # 杀死 sleep，内核自动清理挂载命名空间
-    kill "$nspid" 2> /dev/null || true
-
-    # 卸载挂载点
+    kill "$(this::ensure_ns pid)" 2> /dev/null || true
     mountpoint -q "${GLOBAL[mountpoint]}" 2> /dev/null && (umount "${GLOBAL[mountpoint]}" || umount -l "${GLOBAL[mountpoint]}")
-
-    rmdir "${GLOBAL[mountpoint]}"
+    rmdir "${GLOBAL[mountpoint]}" 2> /dev/null || true
     rm -f "${GLOBAL[pidfile]}"
 
     printf "%s\n" "${GLOBAL[imghash]}"
