@@ -180,6 +180,7 @@ EOF
 }
 
 # 进入容器终端，未启动则自动启动
+# check::img / app::escalate 委托给 cmd::start
 cmd::enter() {
     local user="${1:-root}"
     cmd::start
@@ -246,6 +247,7 @@ cmd::stop() {
     printf "%s\n" "${GLOBAL[imghash]}"
 }
 
+# check::img / app::escalate 委托给 cmd::stop 和 cmd::start
 cmd::restart() {
     this::check_running && {
         local nspid=$(this::ensure_ns pid)
