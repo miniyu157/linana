@@ -15,10 +15,10 @@ app::die() {
 this::check_running() { [[ -f ${GLOBAL[pidfile]} ]] && nsenter -t "$(< "${GLOBAL[pidfile]}")" -m -- mountpoint -q "${GLOBAL[mountpoint]}" 2> /dev/null; }
 
 # 容器需要运行，否则报错退出
-check::is_already_running() { this::check_running || app::die "Container not running: %s\n" "${GLOBAL[imghash]}"; }
+check::is_already_running() { this::check_running || app::die "${_err}×${_off} Container not running: ${GLOBAL[imghash]}\n"; }
 
 # --img 需要设置，否则报错退出
-check::img() { [[ -n ${OPTIONS[img]} ]] || app::die "--img is required for this command.\n"; }
+check::img() { [[ -n ${OPTIONS[img]} ]] || app::die "${_err}×${_off} --img is required for this command.\n"; }
 
 # 获取当前容器的实例，打印 PID 或 mntns
 this::ensure_ns() {
@@ -77,19 +77,18 @@ SCRIPT
 app::escalate() {
     local shell=$(command -v bash || printf "%s" "/data/data/com.termux/files/usr/bin/bash")
     (($(id -u) != 0)) && {
-        [[ -f /system/build.prop ]] || app::die "Non-Android environment. Please run with sudo.\n"
+        [[ -f /system/build.prop ]] || app::die "${_err}×${_off} Non-Android environment. Please run with sudo.\n"
         exec su --mount-master -c "$(printf "%q " env -i PATH=/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin HOME=/data/data/com.termux/files/home/.suroot TERM="$TERM" LD_PRELOAD="/data/data/com.termux/files/usr/lib/libtermux-exec-ld-preload.so" "$shell" "$(readlink -f "$0")" "${SCRIPT_ARGV[@]}")"
     }
 }
 
 usage() {
-    local _b=$'\e[1m' _cyan=$'\e[36m' _title=$'\e[1;3;4m' _off=$'\e[0m'
     cat << EOF
 ${_b}${0##*/} -- A minimal chroot container runtime implemented in Bash${_off}
 
 Automatically preserves the Termux environment during privilege escalation.
 Only mount and UTS namespaces are used — PID and USER namespace support is not required.
-${_cyan}https://github.com/miniyu157/linana${_off}
+${_hl}https://github.com/miniyu157/linana${_off}
 
 ${_title}Usage: ${0##*/} [Options] <Command> [args]${_off}
 
@@ -108,7 +107,7 @@ ${_title}Commands (manage a specific container -- requires --img):${_off}
 
 ${_title}Commands (manage all containers -- no --img needed):${_off}
   ps                        List running containers (id, pid, mntns, img, mp)
-  help                      Show this help message
+  help                      ${_desc}Show this help message${_off}
 EOF
     exit 1
 }
@@ -186,13 +185,13 @@ cmd::start() {
 
     this::check_running && return 0
 
-    printf "Starting container: %s...\n" "${GLOBAL[imghash]}"
+    printf "${_ok}>${_off} Starting container: %s...\n" "${GLOBAL[imghash]}"
 
     this::set_mp
 
     # 必须先设置宿主挂载点、再创建命名空间
     local nspid=$(this::ensure_ns pid)
-    printf "PID: %s\n" "$nspid"
+    printf "Create NS (PID: %s)\n" "$nspid"
 
     this::mountfs
 
@@ -236,7 +235,7 @@ cmd::stop() {
 cmd::restart() {
     this::check_running && {
         local nspid=$(this::ensure_ns pid)
-        printf "Stopping container: %s (PID: %s)...\n" "${GLOBAL[imghash]}" "$nspid"
+        printf "${_ok}>${_off} Stopping container: %s (PID: %s)...\n" "${GLOBAL[imghash]}" "$nspid"
         cmd::stop "$@"
     }
     cmd::start "$@"
@@ -258,9 +257,8 @@ init::options() {
                     OPTIONS[img]="${2:-}"
                     shift 2
                 fi
-                [[ -n ${OPTIONS[img]} ]] || app::die "--img requires a path argument.\n"
-
-                [[ -f ${OPTIONS[img]} ]] || app::die "File not found: %s\n" "${OPTIONS[img]}"
+                [[ -n ${OPTIONS[img]} ]] || app::die "${_err}×${_off} --img requires a path argument.\n"
+                [[ -f ${OPTIONS[img]} ]] || app::die "${_err}×${_off} File not found: ${OPTIONS[img]}\n"
                 OPTIONS[img]=$(realpath "${OPTIONS[img]}")
                 GLOBAL[imghash]=$(printf '%s' "${OPTIONS[img]}" | sha256sum | awk '{print $1}')
                 GLOBAL[imghash]="${GLOBAL[imghash]:0:8}"
@@ -280,17 +278,19 @@ init::options() {
 }
 
 main() {
+    [[ -t 1 || -n ${FORCE_COLOR:-} ]] && declare -g _b=$'\e[1m' _hl=$'\e[35m' _title=$'\e[1;3;4m' _off=$'\e[0m' _err=$'\e[31m' _ok=$'\e[32m' _desc=$'\e[2m'
+
     SCRIPT_ARGV=("$@")
     init::options "$@"
     set -- "${ARGS[@]}"
 
     local fn="cmd::${1:-}"
-    [[ -n $1 ]] || app::die "Missing command.\nRun '${0##*/} help' for usage information.\n"
+    [[ -n $1 ]] || app::die "${_err}×${_off} Missing command.\n${_ok}>${_off} Run '${_hl}${0##*/} help${_off}' for usage information.\n"
 
     if declare -f "$fn" > /dev/null 2>&1; then
         "$fn" "${@:2}"
     else
-        app::die "Unknown command: %s\nRun '${0##*/} help' for usage information.\n" "$1"
+        app::die "${_err}×${_off} Unknown command: $1\n${_ok}>${_off} Run '${_hl}${0##*/} help${_off}' for usage information.\n"
     fi
 }
 
