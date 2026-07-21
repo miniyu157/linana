@@ -38,6 +38,7 @@ this::get_tops() {
     local pid_dir pid ref_pid=$(this::ensure)
     for pid_dir in /proc/[0-9]*; do
         pid="${pid_dir##*/}"
+        [[ $pid == "$ref_pid" ]] && continue
         [[ /proc/$pid/ns/mnt -ef /proc/$ref_pid/ns/mnt ]] && __ref+=("$pid")
     done
 }
