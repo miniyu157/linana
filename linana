@@ -84,6 +84,9 @@ cmd::inspect() {
 Container:
   ${GLOBAL[imghash]}
 
+IMG:
+  ${OPTIONS[img]}
+
 Status:
   $(this::check_running && printf "Running" || printf "Stopped")
 
