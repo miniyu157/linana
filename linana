@@ -21,23 +21,15 @@ check::is_already_running() { this::check_running || app::die "${_err}×${_off} 
 check::img() { [[ -n ${OPTIONS[img]} ]] || app::die "${_err}×${_off} --img is required for this command.\n"; }
 
 # 获取当前容器的实例，打印 PID 或 mntns
-this::ensure_ns() {
-    case "$1" in
-        pid)
-            this::check_running && {
-                cat "${GLOBAL[pidfile]}"
-                return 0
-            }
+this::ensure() {
+    this::check_running && {
+        cat "${GLOBAL[pidfile]}"
+        return 0
+    }
 
-            setsid unshare -m -u sleep infinity > /dev/null 2>&1 &
-            local pid=$!
-            printf '%s\n' "$pid" | tee "${GLOBAL[pidfile]}"
-            ;;
-        mntns)
-            local pid=$(this::ensure_ns pid)
-            pure::get_mntns_by_pid "$pid"
-            ;;
-    esac
+    setsid unshare -m -u sleep infinity > /dev/null 2>&1 &
+    local pid=$!
+    printf '%s\n' "$pid" | tee "${GLOBAL[pidfile]}"
 }
 
 # 为当前容器挂载镜像
@@ -51,10 +43,8 @@ this::set_mp() {
 
 # 为当前容器挂载文件系统
 this::mountfs() {
-    local nspid=$(this::ensure_ns pid) mntns=$(this::ensure_ns mntns)
-
-    printf "Mount FileSystem...(mntns: %s)\n" "$mntns"
-    nsenter -t "$nspid" -m -u -- bash -s "${GLOBAL[mountpoint]}" "${OPTIONS[android_storage]:-0}" << 'SCRIPT'
+    printf "Mount FileSystem...(mntns: %s)\n" "$(pure::get_mntns_by_pid "$(this::ensure)")"
+    nsenter -t "$(this::ensure)" -m -u -- bash -s "${GLOBAL[mountpoint]}" "${OPTIONS[android_storage]:-0}" << 'SCRIPT'
         MP=$1 STORAGE=${2:-0}
         mounts=(/dev:bind /dev/pts:bind /proc:bind /sys:bind /tmp:tmpfs /run:tmpfs)
         ((STORAGE==1)) && mounts+=("/storage/emulated/0:rbind")
@@ -75,10 +65,9 @@ SCRIPT
 }
 
 app::escalate() {
-    local shell=$(command -v bash || printf "%s" "/data/data/com.termux/files/usr/bin/bash")
     (($(id -u) != 0)) && {
         [[ -f /system/build.prop ]] || app::die "${_err}×${_off} Non-Android environment. Please run with sudo.\n"
-        exec su --mount-master -c "$(printf "%q " env -i PATH=/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin HOME=/data/data/com.termux/files/home/.suroot TERM="$TERM" LD_PRELOAD="/data/data/com.termux/files/usr/lib/libtermux-exec-ld-preload.so" "$shell" "$(readlink -f "$0")" "${SCRIPT_ARGV[@]}")"
+        exec su --mount-master -c "$(printf "%q " env -i PATH=/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin HOME=/data/data/com.termux/files/home/.suroot TERM="$TERM" LD_PRELOAD="/data/data/com.termux/files/usr/lib/libtermux-exec-ld-preload.so" "$(command -v bash || printf "%s" "/data/data/com.termux/files/usr/bin/bash")" "$(readlink -f "$0")" "${SCRIPT_ARGV[@]}")"
     }
 }
 
@@ -118,9 +107,8 @@ cmd::top() {
     app::escalate "$@"
     check::is_already_running
 
-    local mntns=$(this::ensure_ns mntns)
     ps -e -o uid,pid,mntns,args --no-headers |
-        awk -v mntns="$mntns" 'BEGIN { printf "%6s %7s  %s\n", "UID", "PID", "COMMAND" } $3 == mntns { printf "%6s %7s  %s\n", $1, $2, substr($0, index($0, $4)) }'
+        awk -v mntns="$(pure::get_mntns_by_pid "$(this::ensure)")" 'BEGIN { printf "%6s %7s  %s\n", "UID", "PID", "COMMAND" } $3 == mntns { printf "%6s %7s  %s\n", $1, $2, substr($0, index($0, $4)) }'
 }
 
 cmd::exec() {
@@ -128,22 +116,22 @@ cmd::exec() {
     app::escalate "$@"
     check::is_already_running
 
-    local nspid=$(this::ensure_ns pid) cmd=("$@")
-    exec -c nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su -c "${cmd[*]}"
+    local cmd=("$@")
+    exec -c nsenter -t "$(this::ensure)" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su -c "${cmd[*]}"
 }
 
 cmd::ps() {
     app::escalate "$@"
 
-    local pidfile hash img mp nspid mntns
+    local pidfile hash img mp pid mntns
     for pidfile in /tmp/lina_*.pid; do
         hash="${pidfile##*/lina_}" hash="${hash%.pid}"
         img=$(mount | grep "/mnt/lina/${hash}" | awk '{print $1}')
         [[ -n $img ]] || continue
 
-        nspid=$(< "$pidfile") mntns=$(pure::get_mntns_by_pid "$nspid")
+        pid=$(< "$pidfile") mntns=$(pure::get_mntns_by_pid "$pid")
         mp="/mnt/lina/${hash}"
-        printf "%b" "id=$hash pid=$nspid mntns=$mntns img=$img mp=$mp\n"
+        printf "%b" "id=$hash pid=$pid mntns=$mntns img=$img mp=$mp\n"
     done
 }
 
@@ -158,10 +146,10 @@ Status:
   $(this::check_running && printf "Running" || printf "Stopped")
 
 PID:
-  $(this::check_running && this::ensure_ns pid || printf "No Running")
+  $(this::check_running && this::ensure || printf "No Running")
 
 Mntns:
-  $(this::check_running && this::ensure_ns mntns || printf "No Running")
+  $(this::check_running && pure::get_mntns_by_pid "$(this::ensure)" || printf "No Running")
 
 MountPoint:
   $(this::check_running && printf "Mounted" || printf "No Mount") ${GLOBAL[mountpoint]}
@@ -173,10 +161,8 @@ EOF
 cmd::enter() {
     local user="${1:-root}"
     cmd::start
-    local nspid=$(this::ensure_ns pid)
-
     # printf '%s\n' "$$" | tee /dev/cpuctl/cgroup.procs /dev/cpuset/cgroup.procs /dev/memcg/cgroup.procs > /dev/null 2>&1
-    exec env -i TERM="$TERM" nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su - "$user"
+    exec env -i TERM="$TERM" nsenter -t "$(this::ensure)" -m -u chroot "${GLOBAL[mountpoint]}" /bin/su - "$user"
 }
 
 # 启动容器，若已启动则不进行操作
@@ -191,13 +177,12 @@ cmd::start() {
     this::set_mp
 
     # 必须先设置宿主挂载点、再创建命名空间
-    local nspid=$(this::ensure_ns pid)
-    printf "Create NS (PID: %s)\n" "$nspid"
+    printf "Create NS (PID: %s)\n" "$(this::ensure)"
 
     this::mountfs
 
     # shellcheck disable=SC2016
-    env -i nsenter -t "$nspid" -m -u chroot "${GLOBAL[mountpoint]}" /bin/sh -c '[ -e /proc/sys/kernel/hostname ] && [ -r /etc/hostname ] && read -r HN < /etc/hostname && printf "%s\n" "$HN" > /proc/sys/kernel/hostname'
+    env -i nsenter -t "$(this::ensure)" -m -u chroot "${GLOBAL[mountpoint]}" /bin/sh -c '[ -e /proc/sys/kernel/hostname ] && [ -r /etc/hostname ] && read -r HN < /etc/hostname && printf "%s\n" "$HN" > /proc/sys/kernel/hostname'
 }
 
 cmd::stop() {
@@ -216,7 +201,7 @@ cmd::stop() {
         kill -9 "${pids[@]}" 2> /dev/null || true
     fi
 
-    kill "$(this::ensure_ns pid)" 2> /dev/null || true
+    kill "$(this::ensure)" 2> /dev/null || true
     mountpoint -q "${GLOBAL[mountpoint]}" 2> /dev/null && (umount "${GLOBAL[mountpoint]}" || umount -l "${GLOBAL[mountpoint]}")
     rmdir "${GLOBAL[mountpoint]}" 2> /dev/null || true
     rm -f "${GLOBAL[pidfile]}"
@@ -227,8 +212,7 @@ cmd::stop() {
 # check::img / app::escalate 委托给 cmd::stop 和 cmd::start
 cmd::restart() {
     this::check_running && {
-        local nspid=$(this::ensure_ns pid)
-        printf "${_ok}>${_off} Stopping container: %s (PID: %s)...\n" "${GLOBAL[imghash]}" "$nspid"
+        printf "${_ok}>${_off} Stopping container: %s (PID: %s)...\n" "${GLOBAL[imghash]}" "$(this::ensure)"
         cmd::stop "$@"
     }
     cmd::start "$@"
@@ -277,14 +261,9 @@ main() {
     init::options "$@"
     set -- "${ARGS[@]}"
 
-    local fn="cmd::${1:-}"
-    [[ -n $1 ]] || app::die "${_err}×${_off} Missing command.\n${_ok}>${_off} Run '${_hl}${0##*/} help${_off}' for usage information.\n"
-
-    if declare -f "$fn" > /dev/null 2>&1; then
-        "$fn" "${@:2}"
-    else
-        app::die "${_err}×${_off} Unknown command: $1\n${_ok}>${_off} Run '${_hl}${0##*/} help${_off}' for usage information.\n"
-    fi
+    [[ -n "$1" ]] || app::die "${_err}×${_off} Missing command.\n${_ok}>${_off} Run '${_hl}${0##*/} help${_off}' for usage information.\n"
+    declare -f "cmd::${1:-}" > /dev/null 2>&1 || app::die "${_err}×${_off} Unknown command: $1\n${_ok}>${_off} Run '${_hl}${0##*/} help${_off}' for usage information.\n"
+    "cmd::${1:-}" "${@:2}"
 }
 
 [[ ${BASH_SOURCE[0]} == "${0}" ]] && main "$@"
