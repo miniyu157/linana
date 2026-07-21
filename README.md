@@ -1,6 +1,6 @@
 # linana
 
-> 一个小于 250LOC 的 Bash 程序，完整实现了
+> 一个 200LOC 的 Bash 程序，完整实现了
 > `start / stop / restart / enter / exec / top / inspect / ps / help`
 > 九个子命令，覆盖了容器的完整生命周期管理。
 >
@@ -9,9 +9,6 @@
 [![License](https://img.shields.io/badge/license-MIT-pink)](./LICENSE)
 
 ![usage](./usage.png)
-
-> `> rg -cv '^\s*(#|$)' linana`  
-> `221`
 
 ---
 
@@ -32,9 +29,9 @@ linana 不是这些神作的替代品。它是当你在 Android 这样受限的�
 - **Android 原生适配**：自动处理 su 提权与 Termux 环境继承，支持挂载 `/storage`。
 - **内容寻址**：使用 rootfs IMG 路径的 Hash 作为容器唯一标识，实现无状态管理。
 
-## 🧬 为什么不到 250 LOC？
+## 🧬 为什么只有 200 LOC？
 
-linana 并不是一个容器“平台”，它将自己严格限定为一个 **Runtime**。250 行代码不是刻意压缩的目标，而是边界裁剪后的自然结果：
+linana 并不是一个容器“平台”，它将自己严格限定为一个 **Runtime**。200 行代码不是刻意压缩的目标，而是边界裁剪后的自然结果：
 
 - **无后台 Daemon**：不驻留任何守护进程，命令即发即弃。
 - **Linux 即状态中心**：不使用文件或数据库保存容器状态。Namespace 的存活就是容器的生命周期；系统的 mount 树就是容器的挂载状态。linana 不“记录”状态，它直接向内核“查询”状态。
