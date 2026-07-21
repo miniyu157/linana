@@ -35,10 +35,10 @@ check::img() { [[ -n ${OPTIONS[img]} ]] || app::die "${_err}×${_off} --img is r
 this::get_tops() {
     local -n __ref=$1
     __ref=()
-    local pid_dir pid
+    local pid_dir pid ref_pid=$(this::ensure)
     for pid_dir in /proc/[0-9]*; do
         pid="${pid_dir##*/}"
-        [[ /proc/$pid/root -ef ${GLOBAL[mountpoint]} ]] && __ref+=("$pid")
+        [[ /proc/$pid/ns/mnt -ef /proc/$ref_pid/ns/mnt ]] && __ref+=("$pid")
     done
 }
 
@@ -49,7 +49,7 @@ cmd::top() {
 
     local -a pids
     this::get_tops pids
-    printf "%6s %7s  %s\n" "UID" "PID" "COMMAND"
+    printf "%6s %7s %s\n" "UID" "PID" "COMMAND"
     ((${#pids[@]})) && {
         printf -v pids_c "%s," "${pids[@]}"
         ps -p "${pids_c%,}" -o uid:6,pid:7,args --no-headers
