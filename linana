@@ -4,7 +4,7 @@
 
 app::escalate() {
     (($(id -u) != 0)) && {
-        [[ -f /system/build.prop ]] || app::die "${_err}×${_off} Non-Android environment. Please run with sudo.\n"
+        [[ -f /system/build.prop ]] || app::die "${_err}×${_off} This command requires root privileges.\n${_ok}>${_off} Run: ${_hl}sudo $(printf "%q " "$(readlink -f "$0")" "${SCRIPT_ARGV[@]}")${_off}\n"
         exec su --mount-master -c "$(printf "%q " env -i PATH=/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin HOME=/data/data/com.termux/files/home/.suroot TERM="$TERM" LD_PRELOAD="/data/data/com.termux/files/usr/lib/libtermux-exec-ld-preload.so" "$(command -v bash || printf "%s" "/data/data/com.termux/files/usr/bin/bash")" "$(readlink -f "$0")" "${SCRIPT_ARGV[@]}")"
     }
 }
