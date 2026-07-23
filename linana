@@ -45,7 +45,7 @@ this::get_tops() {
 
 cmd::top() {
     check::img
-    app::escalate "$@"
+    app::escalate
     check::is_already_running
 
     local -a pids
@@ -59,7 +59,7 @@ cmd::top() {
 
 cmd::exec() {
     check::img
-    app::escalate "$@"
+    app::escalate
     check::is_already_running
 
     local cmd=("$@")
@@ -67,7 +67,7 @@ cmd::exec() {
 }
 
 cmd::ps() {
-    app::escalate "$@"
+    app::escalate
 
     local pidfile hash img
     for pidfile in /tmp/lina_*.pid; do
@@ -80,7 +80,7 @@ cmd::ps() {
 
 cmd::inspect() {
     check::img
-    app::escalate "$@"
+    app::escalate
     cat << EOF
 Container:
   ${GLOBAL[imghash]}
@@ -106,7 +106,7 @@ cmd::enter() {
 
 cmd::start() {
     check::img
-    app::escalate "$@"
+    app::escalate
 
     this::check_running && return 0
 
@@ -143,7 +143,7 @@ SCRIPT
 
 cmd::stop() {
     check::img
-    app::escalate "$@"
+    app::escalate
     check::is_already_running
 
     local -a pids
